@@ -1,90 +1,165 @@
-from sqlmodel import SQLModel, Session, select, create_engine
+# university_analytics.py
+from sqlmodel import Session, select, create_engine
 from university_db import University, Department, Student
 
-# Database Setup 
-DATABASE_URL = "sqlite:///university.db"
-engine = create_engine(DATABASE_URL, echo=True)  # echo=True shows SQL logs
-SQLModel.metadata.create_all(engine)
+engine = create_engine("sqlite:///university.db", echo=True)
 
+# STUDENT FUNCTIONS
 
-#  Generic CRUD Functions 
-def safe_action(action_name, func, *args, **kwargs):
-    """Utility to wrap DB actions with try/except and logs."""
+def get_all_students(session: Session):
+    """Get all students"""
     try:
-        result = func(*args, **kwargs)
-        if isinstance(result, list):
-            print(f"[INFO] Retrieved {len(result)} {action_name}.")
-        else:
-            print(f"[INFO] {action_name} executed successfully.")
-        return result
+        students = session.exec(select(Student)).all()
+        print(f"[INFO] Retrieved {len(students)} students.")
+        return students
     except Exception as e:
-        print(f"[ERROR] Failed to {action_name}: {e}")
-        return [] if "get" in action_name.lower() else None
+        print(f"[ERROR] Failed to get students: {e}")
+        return []
+
+def get_student_by_id(session: Session, student_id: int):
+    """Get student by ID"""
+    try:
+        student = session.get(Student, student_id)
+        print(f"[INFO] Found student: {student}" if student else f"[INFO] No student found with ID {student_id}")
+        return student
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch student ID {student_id}: {e}")
+        return None
+
+def create_student(session: Session, name: str, year: int = None, dept_id: int = None):
+    """Create new student"""
+    try:
+        new_student = Student(student_name=name, enrollment_year=year, department_id=dept_id)
+        session.add(new_student)
+        session.commit()
+        session.refresh(new_student)
+        print(f"[INFO] Created student: {new_student}")
+        return new_student
+    except Exception as e:
+        session.rollback()
+        print(f"[ERROR] Failed to create student: {e}")
+        return None
+
+def update_student(session: Session, student_id: int, name: str = None, year: int = None, dept_id: int = None):
+    """Update student details"""
+    try:
+        student = session.get(Student, student_id)
+        print(f"[INFO] Updating student: {student}")
+        if not student:
+            print(f"[INFO] No student found with ID {student_id}")
+            return None
+        if name:
+            student.student_name = name
+        if year:
+            student.enrollment_year = year
+        if dept_id:
+            student.department_id = dept_id
+        session.add(student)
+        session.commit()
+        session.refresh(student)
+        print(f"[INFO] Updated student successfully: {student}")
+        return student
+    except Exception as e:
+        session.rollback()
+        print(f"[ERROR] Failed to update student {student_id}: {e}")
+        return None
+
+def delete_student(session: Session, student_id: int):
+    """Delete student"""
+    try:
+        student = session.get(Student, student_id)
+        if not student:
+            print(f"[INFO] No student found with ID {student_id}")
+            return False
+        session.delete(student)
+        session.commit()
+        print(f"[INFO] Deleted student ID {student_id}")
+        return True
+    except Exception as e:
+        session.rollback()
+        print(f"[ERROR] Failed to delete student {student_id}: {e}")
+        return False
 
 
-def create_entry(session, model, **kwargs):
-    return safe_action(
-        f"create {model.__name__}",
-        lambda: _create(session, model, **kwargs)
-    )
+# DEPARTMENT FUNCTIONS
+def get_all_departments(session: Session):
+    try:
+        departments = session.exec(select(Department)).all()
+        print(f"[INFO] Retrieved {len(departments)} departments.")
+        return departments
+    except Exception as e:
+        print(f"[ERROR] Failed to get departments: {e}")
+        return []
 
+def create_department(session: Session, name: str, uni_id: int = None):
+    try:
+        new_dept = Department(department_name=name, university_id=uni_id)
+        session.add(new_dept)
+        session.commit()
+        session.refresh(new_dept)
+        print(f"[INFO] Created department: {new_dept}")
+        return new_dept
+    except Exception as e:
+        session.rollback()
+        print(f"[ERROR] Failed to create department: {e}")
+        return None
 
-def _create(session, model, **kwargs):
-    obj = model(**kwargs)
-    session.add(obj)
-    session.commit()
-    session.refresh(obj)
-    return obj
+# UNIVERSITY FUNCTIONS
+def get_all_universities(session: Session):
+    try:
+        universities = session.exec(select(University)).all()
+        print(f"[INFO] Retrieved {len(universities)} universities.")
+        return universities
+    except Exception as e:
+        print(f"[ERROR] Failed to get universities: {e}")
+        return []
 
+def create_university(session: Session, name: str, location: str = None):
+    try:
+        new_uni = University(university_name=name, location=location)
+        session.add(new_uni)
+        session.commit()
+        session.refresh(new_uni)
+        print(f"[INFO] Created university: {new_uni}")
+        return new_uni
+    except Exception as e:
+        session.rollback()
+        print(f"[ERROR] Failed to create university: {e}")
+        return None
 
-def get_all(session, model):
-    return safe_action(f"get all {model.__name__}", lambda: session.exec(select(model)).all())
+# QUERY FUNCTIONS
+def get_students_by_department(session: Session, dept_id: int):
+    """Get all students in a specific department"""
+    try:
+        students = session.exec(select(Student).where(Student.department_id == dept_id)).all()
+        print(f"[INFO] Retrieved {len(students)} students for department {dept_id}.")
+        return students
+    except Exception as e:
+        print(f"[ERROR] Failed to get students for department {dept_id}: {e}")
+        return []
 
+def get_departments_by_university(session: Session, uni_id: int):
+    """Get all departments in a specific university"""
+    try:
+        departments = session.exec(select(Department).where(Department.university_id == uni_id)).all()
+        print(f"[INFO] Retrieved {len(departments)} departments for university {uni_id}.")
+        return departments
+    except Exception as e:
+        print(f"[ERROR] Failed to get departments for university {uni_id}: {e}")
+        return []
 
-def get_students_by_department(session, dept_id):
-    return safe_action(
-        f"get students in department {dept_id}",
-        lambda: session.exec(select(Student).where(Student.department_id == dept_id)).all()
-    )
+def get_students_with_details(session: Session):
+    """Get students with joined department and university"""
+    try:
+        data = session.exec(select(Student).join(Department).join(University)).all()
+        print(f"[INFO] Retrieved {len(data)} students with full details.")
+        return data
+    except Exception as e:
+        print(f"[ERROR] Failed to get student details: {e}")
+        return []
 
-
-#  Main Script 
-with Session(engine) as session:
-
-    # Create initial data only if database empty
-    if not get_all(session, University):
-        print("\n[INFO] Creating sample data...")
-        uni1 = create_entry(session, University, university_name="ABC University", location="Delhi")
-        uni2 = create_entry(session, University, university_name="XYZ University", location="Mumbai")
-
-        dept1 = create_entry(session, Department, department_name="Computer Science", university_id=uni1.university_id)
-        dept2 = create_entry(session, Department, department_name="Physics", university_id=uni2.university_id)
-
-        create_entry(session, Student, student_name="Monica Sharma", enrollment_year=2024, department_id=dept1.department_id)
-        create_entry(session, Student, student_name="Ravi Kumar", enrollment_year=2023, department_id=dept1.department_id)
-        create_entry(session, Student, student_name="Sneha Patel", enrollment_year=2024, department_id=dept2.department_id)
-
-    # -------- OUTPUT SECTION --------
-    print("\n========================")
-    print(" All Students ")
-    print("========================")
-    students = get_all(session, Student)
-    print(f"Students: {students}\n")
-
-    print("========================")
-    print(" Students in Department 1 ")
-    print("========================")
-    dept_students = get_students_by_department(session, 1)
-    print(f"Students in Department 1: {dept_students}\n")
-
-    print("========================")
-    print(" All Departments ")
-    print("========================")
-    departments = get_all(session, Department)
-    print(f"Departments: {departments}\n")
-
-    print("========================")
-    print(" All Universities ")
-    print("========================")
-    universities = get_all(session, University)
-    print(f"Universities: {universities}\n")
+# TEST RUN
+if __name__ == "__main__":
+    with Session(engine) as session:
+        students = get_students_by_department(session, 1)
+        print(f"Students in Department 1: {students}")
