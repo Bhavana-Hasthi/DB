@@ -11,13 +11,15 @@ def get_session():
     return Session(engine)
 
 # HELPER FUNCTIONS
+@app.route("/")
+def home():
+    return "University Student Management API is running."
 
 def get_university_by_name(name: str):
     with get_session() as session:
         return session.exec(
             select(University).where(University.university_name == name)
         ).first()
-
 
 def add_university_entry(name: str, location: str):
     with get_session() as session:
@@ -27,7 +29,6 @@ def add_university_entry(name: str, location: str):
         session.refresh(uni)
         return uni
 
-
 def get_department_by_name(dept_name: str, uni_id: int):
     with get_session() as session:
         return session.exec(
@@ -35,7 +36,6 @@ def get_department_by_name(dept_name: str, uni_id: int):
             .where(Department.department_name == dept_name)
             .where(Department.university_id == uni_id)
         ).first()
-
 
 def add_department_entry(dept_name: str, uni_id: int):
     with get_session() as session:
@@ -45,7 +45,6 @@ def add_department_entry(dept_name: str, uni_id: int):
         session.refresh(dept)
         return dept
 
-
 def get_student_by_details(name: str, year: int, dept_id: int):
     with get_session() as session:
         return session.exec(
@@ -54,7 +53,6 @@ def get_student_by_details(name: str, year: int, dept_id: int):
             .where(Student.enrollment_year == year)
             .where(Student.department_id == dept_id)
         ).first()
-
 
 def add_student_entry_to_db(name: str, year: int, dept_id: int):
     with get_session() as session:
@@ -82,9 +80,9 @@ def add_student_entry():
         year = data.get("year")
         department_name = data.get("department")
         university_name = data.get("university")
-        location = data.get("location")
+        location = data.get("location", "Tirupati")  # Default location
 
-        if not all([student_name, year, department_name, university_name, location]):
+        if not all([student_name, year, department_name, university_name]):
             return jsonify({"status": "failed", "message": "All fields are required"}), 400
 
         university_obj = get_university_by_name(university_name)
@@ -117,25 +115,56 @@ def add_student_entry():
         print(f"❌ Error occurred: {e}")
         return jsonify({"status": "failed", "message": str(e)}), 500
 
-# UPDATE STUDENT
-@app.route("/students/update/<int:student_id>", methods=["PUT"])
-def update_student(student_id):
+# FLEXIBLE UPDATE STUDENT
+@app.route("/students/update", methods=["PUT"])
+def flexible_update_student():
     try:
-        print(f"Updating student with ID {student_id}")
         data = request.json
-        print(f"Received update data: {data}")
+        print(f"🔄 Received update data: {data}")
+
+        name = data.get("name")
+        department_name = data.get("department")
+        university_name = data.get("university")
+        year = data.get("year")
+        student_id = data.get("student_id")
+
+        if not any([student_id, name, department_name, university_name, year]):
+            return jsonify({"status": "failed", "message": "Provide at least one identifying field"}), 400
 
         with get_session() as session:
-            student = session.get(Student, student_id)
+            student = None
+
+            # 🎯 Prefer ID if given
+            if student_id:
+                student = session.get(Student, int(student_id))
+            else:
+                query = select(Student)
+                if name:
+                    query = query.where(Student.student_name.ilike(f"%{name}%"))
+                if year:
+                    query = query.where(Student.enrollment_year == year)
+                if department_name and university_name:
+                    uni = get_university_by_name(university_name)
+                    if uni:
+                        dept = get_department_by_name(department_name, uni.university_id)
+                        if dept:
+                            query = query.where(Student.department_id == dept.department_id)
+                student = session.exec(query).first()
+
             if not student:
                 return jsonify({"status": "failed", "message": "Student not found"}), 404
 
-            if "name" in data:
-                student.student_name = data["name"]
-            if "year" in data:
-                student.enrollment_year = data["year"]
-            if "department_id" in data:
-                student.department_id = data["department_id"]
+            # 🧩 Update fields
+            if "new_name" in data:
+                student.student_name = data["new_name"]
+            if "new_year" in data:
+                student.enrollment_year = data["new_year"]
+            if "new_department" in data and "new_university" in data:
+                uni = get_university_by_name(data["new_university"])
+                if uni:
+                    dept = get_department_by_name(data["new_department"], uni.university_id)
+                    if dept:
+                        student.department_id = dept.department_id
 
             session.add(student)
             session.commit()
@@ -148,26 +177,52 @@ def update_student(student_id):
         print(f"❌ Error updating student: {e}")
         return jsonify({"status": "failed", "message": str(e)}), 500
 
-# DELETE STUDENT
-@app.route("/students/delete/<int:student_id>", methods=["DELETE"])
-def delete_student(student_id):
+# FLEXIBLE DELETE STUDENT
+@app.route("/students/delete", methods=["DELETE"])
+def flexible_delete_student():
     try:
-        print(f"Deleting student with ID {student_id}")
+        data = request.json
+        print(f"🗑️ Received delete data: {data}")
+
+        student_id = data.get("student_id")
+        name = data.get("name")
+        department_name = data.get("department")
+        university_name = data.get("university")
+        year = data.get("year")
+
         with get_session() as session:
-            student = session.get(Student, student_id)
+            student = None
+
+            if student_id:
+                student = session.get(Student, int(student_id))
+            else:
+                query = select(Student)
+                if name:
+                    query = query.where(Student.student_name.ilike(f"%{name}%"))
+                if year:
+                    query = query.where(Student.enrollment_year == year)
+                if department_name and university_name:
+                    uni = get_university_by_name(university_name)
+                    if uni:
+                        dept = get_department_by_name(department_name, uni.university_id)
+                        if dept:
+                            query = query.where(Student.department_id == dept.department_id)
+                student = session.exec(query).first()
+
             if not student:
                 return jsonify({"status": "failed", "message": "Student not found"}), 404
 
             session.delete(student)
             session.commit()
             print("✅ Student deleted successfully")
-            return jsonify({"status": "success", "message": "Student deleted"}), 200
+
+            return jsonify({"status": "success", "message": f"Deleted student '{student.student_name}'"}), 200
 
     except Exception as e:
         print(f"❌ Error deleting student: {e}")
         return jsonify({"status": "failed", "message": str(e)}), 500
 
-# SEARCH STUDENT BY NAME OR ID
+# SEARCH STUDENT
 @app.route("/students/search", methods=["GET"])
 def search_student():
     try:
@@ -204,6 +259,6 @@ def search_student():
         print(f"❌ Error searching student: {e}")
         return jsonify({"status": "failed", "message": str(e)}), 500
 
-# 🚀 Run Server
+# RUN SERVER
 if __name__ == "__main__":
     app.run(debug=True, use_reloader=False)
